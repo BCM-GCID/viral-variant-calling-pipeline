@@ -1,0 +1,31 @@
+fastq1: "/gpfs1/projects/Pools/RD_projects/NoV_p1707_NTZ_variant_calling/final_fastq/deduplicated/{sample}/{sample}.final.1.fq.bz2"
+fastq2: "/gpfs1/projects/Pools/RD_projects/NoV_p1707_NTZ_variant_calling/final_fastq/deduplicated/{sample}/{sample}.final.2.fq.bz2"
+inputDir: "/gpfs1/projects/Pools/RD_projects/NoV_p1707_NTZ_variant_calling/final_fastq/deduplicated"
+outputDir: "/gpfs1/projects/Pools/RD_projects/NoV_p1707_NTZ_variant_calling/output/{sample}"
+samplefile: "refgenome_mapping"
+
+gff3: "/gpfs1/projects/Pools/RD_projects/NoV_p1707_NTZ_variant_calling/refgenomes/{reference}/{reference}.gff3"
+refGenome: "/gpfs1/projects/Pools/RD_projects/NoV_p1707_NTZ_variant_calling/refgenomes"
+snpEffconfig: "/gpfs1/projects/Pools/RD_projects/NoV_p1707_NTZ_variant_calling/variant_calling_pipeline/snpEff.config"
+
+#mpileup options: http://www.htslib.org/doc/samtools-mpileup.html
+#--fasta-ref set in SnakeFile
+mpileupParams: "-aa --count-orphans --no-BAQ --max-depth 500000 -Q 0" 
+
+#ivar options: https://andersen-lab.github.io/ivar/html/manualpage.html 
+#-r set in SnakeFile
+ivarParams: "-q 20 -t 0.03"
+
+#ivar_variants_to_vcf.py options 
+# --pass_only: Only output variants that PASS all filters.
+# --allele_freq_thresh: Only output variants where allele frequency greater than this number (default: 0). 
+convertToVcfParams: "--pass_only --allele_freq_thresh 0"
+
+
+# building snpEff DB: https://pcingola.github.io/SnpEff/se_buildingdb/
+# create a new folder for to hold the database: /cmmr/opt/miniconda3/envs/variantannot/share/snpeff-5.0-1/data/AB365435.1
+# when downloading genbank file from ncbi do not check the "Show GI" box. This will mess up the snpEff annotations. 
+# copy genbank file to the above folder.  
+# add following entry to /cmmr/opt/miniconda3/envs/variantannot/share/snpeff-5.0-1/snpEff.config
+# AB365435.1.genome : Norovirus Hu/Texas/TCH04-577/2004/US genomic RNA, complete genome
+# run: snpEff build -genbank -v AB365435.1

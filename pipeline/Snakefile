@@ -1,0 +1,107 @@
+import pandas as pd
+from itertools import islice
+import threading
+from time import sleep
+from datetime import datetime
+
+global_lock = threading.Lock()
+
+configfile: "config.yaml"
+
+fastq1=config["fastq1"]
+fastq2=config["fastq2"]
+gff3=config["gff3"]
+outDir=config["outputDir"]
+inputDir=config["inputDir"]
+sampfile=config["samplefile"]
+refGenome=config["refGenome"]
+mpileupParams=config["mpileupParams"]
+ivarParams=config["ivarParams"]
+convertToVcfParams=config["convertToVcfParams"] 
+snpEffconfig=config["snpEffconfig"]  
+
+samplist=pd.read_table(sampfile, header=None)[0]
+reflist=pd.read_table(sampfile, header=None)[1]
+sample_to_ref = dict(zip(samplist, reflist))
+#samplist = pd.read_table(sampfile, header=None, names=["sample", "reference"])
+
+
+           
+rule all:
+		input: expand(outDir + '/{sample}.sorted.bam', sample=samplist), expand(outDir + '/{sample}.sorted.bai', sample=samplist), expand(outDir + '/{sample}.ivar.tsv', sample=samplist), expand(outDir + '/{sample}.ivar.vcf', sample=samplist), expand(outDir + '/{sample}.snpEff.vcf', sample=samplist)        
+        
+def append_to_file(line, node):
+	while global_lock.locked():
+		sleep(0.01)
+		continue
+	global_lock.acquire()
+	with open(node + "_FailedSamples.txt", "a+") as file:		
+		file.write(line + "\n") 
+		file.close()
+	global_lock.release()
+
+onsuccess:
+	print("Workflow finished: No Error")	
+	
+onerror:	
+	print("Workflow error: " + log)
+	for line in shell("echo -e $PBS_JOBNAME;", iterable=True):
+		node=line
+	with Path(log).open() as f:	
+		# for line in f:
+			# print(line)	
+		rule_names = [line.strip() for line in f if line.strip().startswith('Error in rule')]		
+		#print(rule_names)
+		if rule_names:
+			failed_rule_line = rule_names[-1]			
+			failed_rulename = failed_rule_line.split()[-1]
+			failed_rulename = failed_rulename.replace(':','')
+			#print(failed_rulename)
+		f.seek(0)
+		for line in f: 
+			flag=0
+			if line.strip().startswith("rule " + failed_rulename + ":") == 1:
+				#print(line)
+				for l in islice(f, 1, None, 1):
+					sample = l.split("=")[-1]
+					if sample.strip() != l.strip(): 
+						break	
+	f.close()
+	append_to_file(sample.strip() + '\t' + failed_rulename, node)	
+
+rule map_to_reference:
+		input: read1=lambda wildcards: str( Path(inputDir) / f"{wildcards.sample}" / f"{wildcards.sample}.final.1.fq.bz2"), read2=lambda wildcards: str( Path(inputDir) / f"{wildcards.sample}" / f"{wildcards.sample}.final.2.fq.bz2")
+		output: bam=outDir + '/{sample}.sorted.bam', bai=outDir + '/{sample}.sorted.bai'
+		params: refgendir=lambda wildcards: f"{refGenome}/{sample_to_ref[wildcards.sample]}", reffasta=lambda wildcards: f"{sample_to_ref[wildcards.sample]}.fasta", gff3=lambda wildcards: f"{sample_to_ref[wildcards.sample]}.gff3", outdir=outDir, samlog=outDir + '/{sample}_samtools.log'
+		group: "group0"
+		threads: 20
+		shell: 'source /cmmr/prod/envParams/env.params; \
+                cp {params.refgendir}/{params.reffasta} {params.outdir}; \
+                cp {params.refgendir}/{params.gff3} {params.outdir}; \
+                cd {params.outdir}; \
+                bwa index {params.outdir}/{params.reffasta} 2>>{params.samlog}; \
+                bwa mem -t {threads} {params.outdir}/{params.reffasta} <(pbzip2 -kdc {input.read1}) <(pbzip2 -kdc {input.read2}) 2>{params.samlog} | samtools view -hb 2>>{params.samlog} | samtools sort > {output.bam} 2>>{params.samlog}; \
+                samtools index {output.bam} {output.bai} 2>>{params.samlog};'
+
+rule call_variants:
+		input: bam=lambda wildcards: str( Path(outDir) / f"{wildcards.sample}.sorted.bam")
+		output: outDir + '/{sample}.ivar.tsv'
+		params: gff3=lambda wildcards: f"{sample_to_ref[wildcards.sample]}.gff3", reffasta=lambda wildcards: f"{sample_to_ref[wildcards.sample]}.fasta", mpileup=mpileupParams, ivar=ivarParams, outdir=outDir
+		group: "group0"				
+		shell: 'source /cmmr/prod/envParams/env.params; \
+				samtools mpileup {params.mpileup} --fasta-ref {params.outdir}/{params.reffasta} {input.bam} | ivar variants {params.ivar} -r {params.outdir}/{params.reffasta} -g {params.outdir}/{params.gff3} -p {output};'
+
+rule convert_to_vcf:
+		input: ivarOut=lambda wildcards: str( Path(outDir) / f"{wildcards.sample}.ivar.tsv")
+		output: ivarVcf=outDir + '/{sample}.ivar.vcf'		
+		params: convertToVcf=convertToVcfParams
+		group: "group0"		
+		shell: 'python $PWD/scripts/ivar_variants_to_vcf.py {params.convertToVcf} {input.ivarOut} {output.ivarVcf};'
+        
+rule annot_variants:
+		input: vcf= lambda wildcards: str( Path(outDir) / f"{wildcards.sample}.ivar.vcf")
+		output: snpEffVcf=outDir + '/{sample}.snpEff.vcf'		
+		params: ref=lambda wildcards: f"{sample_to_ref[wildcards.sample]}", config=snpEffconfig
+		group: "group0"		
+		shell: 'snpEff -c {params.config} {params.ref} {input.vcf} > {output.snpEffVcf};'
+		
