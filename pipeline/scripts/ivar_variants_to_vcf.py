@@ -5,7 +5,7 @@ import re
 import errno
 import argparse
 
-#This script was lifted from nf-core/viralrecon pipeline: https://github.com/nf-core/viralrecon/blob/master/bin/ivar_variants_to_vcf.py 
+#This script was borrowed from nf-core/viralrecon pipeline: https://github.com/nf-core/viralrecon/blob/master/bin/ivar_variants_to_vcf.py 
 
 def parse_args(args=None):
     Description = "Convert iVar variants tsv file to vcf format."

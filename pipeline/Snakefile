@@ -10,7 +10,6 @@ configfile: "config.yaml"
 
 fastq1=config["fastq1"]
 fastq2=config["fastq2"]
-gff3=config["gff3"]
 outDir=config["outputDir"]
 inputDir=config["inputDir"]
 sampfile=config["samplefile"]
@@ -23,52 +22,10 @@ snpEffconfig=config["snpEffconfig"]
 samplist=pd.read_table(sampfile, header=None)[0]
 reflist=pd.read_table(sampfile, header=None)[1]
 sample_to_ref = dict(zip(samplist, reflist))
-#samplist = pd.read_table(sampfile, header=None, names=["sample", "reference"])
-
-
            
 rule all:
-		input: expand(outDir + '/{sample}.sorted.bam', sample=samplist), expand(outDir + '/{sample}.sorted.bai', sample=samplist), expand(outDir + '/{sample}.ivar.tsv', sample=samplist), expand(outDir + '/{sample}.ivar.vcf', sample=samplist), expand(outDir + '/{sample}.snpEff.vcf', sample=samplist)        
+		input: expand(outDir + '/{sample}.sorted.bam', sample=samplist), expand(outDir + '/{sample}.sorted.bai', sample=samplist), expand(outDir + '/{sample}.ivar.tsv', sample=samplist), expand(outDir + '/{sample}.ivar.vcf', sample=samplist), expand(outDir + '/{sample}.snpEff.vcf', sample=samplist)
         
-def append_to_file(line, node):
-	while global_lock.locked():
-		sleep(0.01)
-		continue
-	global_lock.acquire()
-	with open(node + "_FailedSamples.txt", "a+") as file:		
-		file.write(line + "\n") 
-		file.close()
-	global_lock.release()
-
-onsuccess:
-	print("Workflow finished: No Error")	
-	
-onerror:	
-	print("Workflow error: " + log)
-	for line in shell("echo -e $PBS_JOBNAME;", iterable=True):
-		node=line
-	with Path(log).open() as f:	
-		# for line in f:
-			# print(line)	
-		rule_names = [line.strip() for line in f if line.strip().startswith('Error in rule')]		
-		#print(rule_names)
-		if rule_names:
-			failed_rule_line = rule_names[-1]			
-			failed_rulename = failed_rule_line.split()[-1]
-			failed_rulename = failed_rulename.replace(':','')
-			#print(failed_rulename)
-		f.seek(0)
-		for line in f: 
-			flag=0
-			if line.strip().startswith("rule " + failed_rulename + ":") == 1:
-				#print(line)
-				for l in islice(f, 1, None, 1):
-					sample = l.split("=")[-1]
-					if sample.strip() != l.strip(): 
-						break	
-	f.close()
-	append_to_file(sample.strip() + '\t' + failed_rulename, node)	
-
 rule map_to_reference:
 		input: read1=lambda wildcards: str( Path(inputDir) / f"{wildcards.sample}" / f"{wildcards.sample}.final.1.fq.bz2"), read2=lambda wildcards: str( Path(inputDir) / f"{wildcards.sample}" / f"{wildcards.sample}.final.2.fq.bz2")
 		output: bam=outDir + '/{sample}.sorted.bam', bai=outDir + '/{sample}.sorted.bai'
@@ -104,4 +61,4 @@ rule annot_variants:
 		params: ref=lambda wildcards: f"{sample_to_ref[wildcards.sample]}", config=snpEffconfig
 		group: "group0"		
 		shell: 'snpEff -c {params.config} {params.ref} {input.vcf} > {output.snpEffVcf};'
-		
+        #shell: 'snpEff {params.ref} {input.vcf} > {output.snpEffVcf};'
